@@ -6,9 +6,20 @@ export interface NavItem {
   label: string
 }
 
-withDefaults(defineProps<{ nav?: NavItem[] }>(), { nav: () => [] })
+const props = withDefaults(defineProps<{ nav?: NavItem[] }>(), { nav: () => [] })
 
 const user = useSupabaseUser()
+const route = useRoute()
+
+/** Entrée active : le plus long lien qui préfixe la page courante (les ancres ne sont jamais actives). */
+const activeTo = computed(() => {
+  const path = route.path
+  return (
+    props.nav
+      .filter((item) => !item.to.includes('#') && (path === item.to || path.startsWith(`${item.to}/`)))
+      .sort((a, b) => b.to.length - a.to.length)[0]?.to ?? null
+  )
+})
 </script>
 
 <template>
@@ -20,8 +31,9 @@ const user = useSupabaseUser()
           v-for="item in nav"
           :key="item.to"
           :to="item.to"
-          class="rounded-[7px] px-3 py-1.5 text-sm font-semibold text-muted hover:text-ink"
-          :active-class="item.to.includes('#') ? '' : '!text-ink'"
+          class="rounded-[7px] px-3 py-1.5 text-sm font-semibold hover:text-ink"
+          :class="activeTo === item.to ? 'text-ink' : 'text-muted'"
+          :aria-current="activeTo === item.to ? 'page' : undefined"
         >
           {{ item.label }}
         </NuxtLink>
@@ -47,8 +59,9 @@ const user = useSupabaseUser()
         v-for="item in nav"
         :key="item.to"
         :to="item.to"
-        class="whitespace-nowrap rounded-[7px] px-3 py-1.5 text-sm font-semibold text-muted"
-        :active-class="item.to.includes('#') ? '' : 'bg-white !text-ink'"
+        class="whitespace-nowrap rounded-[7px] px-3 py-1.5 text-sm font-semibold"
+        :class="activeTo === item.to ? 'bg-white text-ink' : 'text-muted'"
+        :aria-current="activeTo === item.to ? 'page' : undefined"
       >
         {{ item.label }}
       </NuxtLink>

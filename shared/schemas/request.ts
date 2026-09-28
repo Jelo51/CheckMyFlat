@@ -106,3 +106,27 @@ export const cancelSchema = z.object({
 })
 
 export const disputeSchema = cancelSchema
+
+/** Champs de l'API → colonnes de `visit_requests`. */
+export function draftToColumns(draft: RequestDraft): Record<string, unknown> {
+  const map = {
+    listingUrl: 'listing_url',
+    address: 'address',
+    postalCode: 'postal_code',
+    city: 'city',
+    lat: 'lat',
+    lng: 'lng',
+    propertyType: 'property_type',
+    slotAt: 'slot_at',
+    agencyName: 'agency_name',
+    agencyPhone: 'agency_phone',
+    agencyEmail: 'agency_email',
+    priorities: 'priorities',
+    proposedPriceCents: 'proposed_price_cents',
+  } as const
+  return Object.fromEntries(
+    Object.entries(draft)
+      .filter(([k]) => k in map)
+      .map(([k, v]) => [map[k as keyof typeof map], v]),
+  )
+}
