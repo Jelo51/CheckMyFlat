@@ -1,0 +1,35 @@
+# Nuxt
+.output
+.data
+.nuxt
+.nitro
+.cache
+dist
+
+# Dépendances
+node_modules
+
+# Logs
+logs
+*.log
+
+# Environnement
+.env
+.env.*
+!.env.example
+
+# Tests
+coverage
+test-results
+playwright-report
+playwright/.cache
+
+# Supabase
+supabase/.branches
+supabase/.temp
+
+# Divers
+.DS_Store
+.idea
+.vscode/*
+!.vscode/extensions.json
