@@ -153,6 +153,7 @@ export type Database = {
         Row: {
           amount_cents: number
           capture_before: string | null
+          captured_at: string | null
           captured_cents: number
           created_at: string
           id: string
@@ -166,6 +167,7 @@ export type Database = {
         Insert: {
           amount_cents: number
           capture_before?: string | null
+          captured_at?: string | null
           captured_cents?: number
           created_at?: string
           id?: string
@@ -179,6 +181,7 @@ export type Database = {
         Update: {
           amount_cents?: number
           capture_before?: string | null
+          captured_at?: string | null
           captured_cents?: number
           created_at?: string
           id?: string
@@ -778,6 +781,7 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      admin_stats: { Args: Record<PropertyKey, never>; Returns: Json }
       assign_agent: {
         Args: { p_agent_id: string; p_request_id: string }
         Returns: {
