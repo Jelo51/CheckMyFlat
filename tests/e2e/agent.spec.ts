@@ -11,7 +11,9 @@ test('formulaire de visite sur mobile → rapport livré', async ({ page }) => {
   await expectAccessible(page)
 
   // Photo (compressée dans le navigateur, envoyée par URL signée)
-  await page.locator('input[type=file][multiple]').setInputFiles(join(import.meta.dirname, 'fixtures/photo.jpg'))
+  await page
+    .locator('input[type=file][multiple]')
+    .setInputFiles(join(import.meta.dirname, 'fixtures/photo.jpg'))
   await expect(page.getByText('Photo 1').first()).toBeVisible({ timeout: 20_000 })
 
   // 14 critères : 4 partout

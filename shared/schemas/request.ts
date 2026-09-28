@@ -64,7 +64,9 @@ export const requestFieldsSchema = z.object({
   lng: z.number().min(-180).max(180).nullish(),
   propertyType: z.enum(PROPERTY_TYPES, { error: 'Choisissez le type de bien' }),
   slotAt: z.iso.datetime({ offset: true, error: 'Indiquez la date et l’heure du rendez-vous' }),
-  agencyName: trimmed(160, 'Indiquez le contact sur place').min(2, { error: 'Indiquez le contact sur place' }),
+  agencyName: trimmed(160, 'Indiquez le contact sur place').min(2, {
+    error: 'Indiquez le contact sur place',
+  }),
   agencyPhone: phone,
   agencyEmail: z.email({ error: 'Email invalide' }).nullish(),
   priorities: trimmed(2000).nullish(),

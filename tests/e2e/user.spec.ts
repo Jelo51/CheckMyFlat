@@ -20,7 +20,9 @@ test('dépôt sans compte → inscription → négociation → paiement', async 
   await page.getByLabel('Heure').fill('10:00')
   await page.getByLabel('Contact sur place').fill('Agence du Parvis — Mme Leroy')
   await page.getByLabel('Téléphone du contact').fill('03 26 00 00 00')
-  await page.getByLabel('Ce que vous voulez qu’on vérifie en priorité').fill('Bruit de la rue, état de la salle de bains.')
+  await page
+    .getByLabel('Ce que vous voulez qu’on vérifie en priorité')
+    .fill('Bruit de la rue, état de la salle de bains.')
   await page.getByLabel('Prix proposé (€)').fill('9')
   await page.getByLabel(/J’atteste avoir prévenu l’agence/).check()
   await page.getByRole('button', { name: 'Proposer ce prix et publier' }).click()
@@ -65,7 +67,9 @@ test('dépôt sans compte → inscription → négociation → paiement', async 
   await expect(page.getByText('Paiement traité par Stripe')).toBeVisible()
 
   // La page Stripe Checkout n'est pas jouée : on intercepte la redirection.
-  await page.route(/checkout\.stripe\.com/, (route) => route.fulfill({ status: 200, body: 'Stripe Checkout' }))
+  await page.route(/checkout\.stripe\.com/, (route) =>
+    route.fulfill({ status: 200, body: 'Stripe Checkout' }),
+  )
   await page.getByRole('button', { name: /Payer 12,00/ }).click()
   await page.waitForURL(/checkout\.stripe\.com/)
 
