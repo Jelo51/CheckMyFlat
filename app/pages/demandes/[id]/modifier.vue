@@ -65,7 +65,7 @@ async function publish() {
       Votre demande a été rattachée à votre compte. Vérifiez-la, cochez l’attestation, puis publiez.
     </UiAlertBox>
     <UiAlertBox v-if="saved" tone="success" class="mb-5">Brouillon enregistré.</UiAlertBox>
-    <RequestRequestForm
+    <RequestForm
       v-model="form"
       :mode="isDraft ? 'draft' : 'edit'"
       :pending="pending"

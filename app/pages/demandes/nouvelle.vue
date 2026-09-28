@@ -91,7 +91,7 @@ async function save() {
     <UiAlertBox v-if="notClient" tone="warning">
       Les demandes de visite se déposent depuis un compte client.
     </UiAlertBox>
-    <RequestRequestForm
+    <RequestForm
       v-else
       v-model="form"
       mode="new"

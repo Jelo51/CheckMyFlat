@@ -25,26 +25,30 @@ Polices du prototype conservées : Bricolage Grotesque (titres), Public Sans (te
 
 ```
 app/
-  pages/            index, legal/*, auth/*, demandes/*, rapports/*, agent/*, admin/*
-  layouts/          public, app (user/agent), admin
-  middleware/       auth.global, role (user|agent|admin), guest
-  components/       ui/ (Button, Tag, Field, RatingInput, ScoreBar, Stamp…), request/, report/, admin/
-  composables/      useRequest, useDraftRequest, useMessages, useVisitForm, useScoring…
-  types/            database.types.ts (généré), domain.ts
-shared/             code partagé client/serveur (Nuxt 4 `shared/`)
-  schemas/          Zod : request, offer, message, visitReport, pricingZone, profile
-  domain/           stateMachine.ts, scoring.ts, pricing.ts, reference.ts
+  pages/            index, legal/[slug], connexion, inscription, auth/confirmation, demandes/*, rapports/*,
+                    agent/visites/*, admin/*, compte
+  layouts/          default (public), app (espace connecté, navigation selon le rôle)
+  middleware/       auth.global (métadonnées de page : auth, roles, guestOnly)
+  components/       ui/ (icône, notes, tampon, statut, champ, dialogue…), request/, visit/, landing/
+  composables/      useProfile, useRequestDetail, useVisitReport, useCriteria, useQuote, useLocalDraft…
+  types/            database.types.ts (généré)
+shared/             code partagé client/serveur
+  schemas/          Zod (messages en français) : request, visitReport, account, pricing
+  domain/           stateMachine, scoring, pricing (zones, pénalités, règlement Stripe), reference
+  utils/            heure de Paris, redirections sûres
 server/
-  api/              routes Nitro (transitions, offres, paiement, rapport, admin, médias)
+  api/              demandes, offres, visites, médias, rapports, admin, géocodage, cron
   routes/webhooks/  stripe.post.ts
-  utils/            supabaseAdmin (service role), stripe, pdf/, notifier/
+  tasks/            payments/maintenance (toutes les 15 min)
+  utils/            auth (clients Supabase), payments (Stripe), notify + notifications/, pdf/, zones, visits
+  assets/fonts/     polices TTF du PDF
 supabase/
   migrations/       SQL versionné
   seed.sql
-  tests/            tests pgTAP des policies RLS
 tests/
   unit/             Vitest
-  e2e/              Playwright
+  db/               Vitest + pg : policies RLS, transitions, règles SQL
+  e2e/              Playwright (+ axe)
 ```
 
 Principes :
@@ -85,7 +89,7 @@ RLS (toutes tables, `force row level security`) :
 - admin : tout, via `is_admin()` `SECURITY DEFINER STABLE`.
 - Tables de référence (`criteria*`, `pricing_zones`) : lecture publique, écriture admin.
 - Écritures de statut : jamais par `UPDATE` direct, seulement via `transition_request`.
-- Tests pgTAP dans `supabase/tests/` lancés par `supabase test db`.
+- Tests Vitest + `pg` dans `tests/db/` (rôles `anon`/`authenticated`/`service_role` simulés par `set local role` + claims JWT), exécutables sur Postgres nu (émulation Supabase) ou sur `supabase start`.
 
 ## 3. Machine à états
 
@@ -119,35 +123,35 @@ Tests Vitest : produit cartésien de tous les états × tous les états × tous 
 - Arrondi d'affichage à 0,1 avec virgule française ; stockage `numeric(3,2)`.
 - Soumission impossible tant que les 14 critères ne sont pas notés.
 
-## 5. Choix techniques proposés
+## 5. Choix techniques
 
-| Besoin                    | Choix                                                                                         | Raison                                                                  |
-| ------------------------- | --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| Gestionnaire de paquets   | pnpm                                                                                          | disponible, rapide, lockfile strict                                     |
-| PDF                       | `pdfkit` en route Nitro                                                                       | pur JS, pas de Chromium : fonctionne sur tout hébergeur Node/serverless |
-| Compression images client | `browser-image-compression`                                                                   | WebWorker, EXIF orientation                                             |
-| Paiement                  | Stripe Checkout (hébergé)                                                                     | moins de surface PCI, SCA gérée                                         |
-| Emails                    | interface `Notifier` + adaptateur (voir Q6) ; adaptateur `log` en dev                         | changement de fournisseur/SMS sans toucher le métier                    |
-| Templates email           | fonctions TS → HTML simple + texte brut                                                       | pas de dépendance lourde                                                |
-| Tests RLS                 | pgTAP via `supabase test db`                                                                  | standard Supabase                                                       |
-| Tests E2E                 | Playwright contre Supabase local + Stripe en mode test (webhook simulé par signature de test) | déterministe en CI                                                      |
-| Date/heure                | stockage UTC, affichage `Europe/Paris` via `Intl`                                             |                                                                         |
+| Besoin                    | Choix                                                                    | Raison                                                  |
+| ------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------- |
+| Gestionnaire de paquets   | pnpm                                                                     | disponible, rapide, lockfile strict                     |
+| PDF                       | `pdfkit` en route Nitro, polices TTF embarquées                          | pur JS, pas de Chromium ; fontkit lit mal certains WOFF |
+| Compression images client | `browser-image-compression`                                              | WebWorker, EXIF orientation                             |
+| Paiement                  | Stripe Checkout (hébergé)                                                | moins de surface PCI, SCA gérée                         |
+| Emails                    | interface `Channel` (Resend, console) ; `notify()` compose par événement | fournisseur ou SMS changeables sans toucher le métier   |
+| Templates email           | fonctions TS → HTML simple + texte brut                                  | pas de dépendance lourde                                |
+| Tests RLS                 | Vitest + `pg`, transactions annulées                                     | exécutables sans Docker et en CI sur la vraie pile      |
+| Tests E2E                 | Playwright contre Supabase local + stripe-mock, webhook simulé et signé  | déterministe en CI                                      |
+| Date/heure                | stockage UTC, affichage `Europe/Paris` via `Intl`                        |                                                         |
 
 ## 6. Phases
 
-| #   | Phase         | Livrables                                                                                                                              | État    |
-| --- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------- |
-| 1   | Setup         | Nuxt 4, TS strict, Tailwind + tokens, ESLint/Prettier, Vitest, layouts public/app/admin, composants UI de base                         | à faire |
-| 2   | BDD           | migrations, RLS, fonctions `transition_request`, seed, types générés, tests pgTAP                                                      | à faire |
-| 3   | Auth          | inscription/connexion/mot de passe oublié, middlewares rôle, brouillon visiteur (localStorage → `brouillon` en base après inscription) | à faire |
-| 4   | Public        | landing complète, pages légales (structure), 404                                                                                       | à faire |
-| 5   | User          | Mes demandes, nouvelle demande, détail + messagerie + offres structurées, édition, annulation                                          | à faire |
-| 6   | Stripe        | Checkout, webhook signé idempotent, remboursements auto                                                                                | à faire |
-| 7   | Agent         | Mes visites, formulaire mobile, autosave, médias, notation hybride                                                                     | à faire |
-| 8   | PDF           | génération pdfkit, stockage, Mes rapports, vue rapport en ligne                                                                        | à faire |
-| 9   | Admin         | file + KPIs + filtres, négociation, assignation, utilisateurs CRUD, grille tarifaire                                                   | à faire |
-| 10  | Notifications | couche `Notifier`, 5 emails transactionnels                                                                                            | à faire |
-| 11  | Qualité       | Playwright ×3 parcours, passe a11y (axe), README                                                                                       | à faire |
+| #   | Phase         | Livrables                                                                                                                              | État |
+| --- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ---- |
+| 1   | Setup         | Nuxt 4, TS strict, Tailwind + tokens, ESLint/Prettier, Vitest, layouts public/app, composants UI de base                               | fait |
+| 2   | BDD           | migrations, RLS, fonctions `transition_request`, seed, types générés, tests SQL (Vitest)                                               | fait |
+| 3   | Auth          | inscription/connexion/mot de passe oublié, middlewares rôle, brouillon visiteur (localStorage → `brouillon` en base après inscription) | fait |
+| 4   | Public        | landing complète, pages légales (structure), 404                                                                                       | fait |
+| 5   | User          | Mes demandes, nouvelle demande, détail + messagerie + offres structurées, édition, annulation                                          | fait |
+| 6   | Stripe        | Checkout, webhook signé idempotent, remboursements auto                                                                                | fait |
+| 7   | Agent         | Mes visites, formulaire mobile, autosave, médias, notation hybride                                                                     | fait |
+| 8   | PDF           | génération pdfkit, stockage, Mes rapports, vue rapport en ligne                                                                        | fait |
+| 9   | Admin         | file + KPIs + filtres, négociation, assignation, utilisateurs CRUD, grille tarifaire                                                   | fait |
+| 10  | Notifications | couche de notification, emails transactionnels                                                                                         | fait |
+| 11  | Qualité       | Playwright ×3 parcours, passe a11y (axe), README                                                                                       | fait |
 
 Chaque phase se termine par : `pnpm lint && pnpm typecheck && pnpm test` au vert, puis un commit.
 

@@ -1,4 +1,4 @@
-import { z } from 'zod'
+import { z } from './zod'
 
 export const ROLES = ['visitor', 'user', 'agent', 'admin'] as const
 export type Role = (typeof ROLES)[number]

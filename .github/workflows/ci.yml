@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'claude/**']
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Lint, types, tests unitaires et base
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: cmf_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm test
+      - name: Tests base de données (Postgres + émulation Supabase)
+        run: pnpm test:db
+        env:
+          TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/cmf_test
+
+  e2e:
+    name: Supabase local + E2E Playwright
+    runs-on: ubuntu-latest
+    needs: quality
+    services:
+      stripe-mock:
+        image: stripe/stripe-mock:latest
+        ports: ['12111:12111']
+    env:
+      NUXT_PUBLIC_SITE_URL: http://localhost:3000
+      NUXT_STRIPE_SECRET_KEY: sk_test_123
+      NUXT_STRIPE_WEBHOOK_SECRET: whsec_e2e
+      NUXT_STRIPE_API_HOST: localhost
+      NUXT_STRIPE_API_PORT: '12111'
+      NUXT_STRIPE_API_PROTOCOL: http
+      NUXT_EMAIL_PROVIDER: log
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Démarrer Supabase (migrations + seed)
+        run: supabase start -x studio,imgproxy,edge-runtime,logflare,vector,supavisor
+      - name: Variables Supabase
+        run: |
+          supabase status -o json > /tmp/supabase.json
+          echo "NUXT_PUBLIC_SUPABASE_URL=$(jq -r .API_URL /tmp/supabase.json)" >> "$GITHUB_ENV"
+          echo "NUXT_PUBLIC_SUPABASE_KEY=$(jq -r .ANON_KEY /tmp/supabase.json)" >> "$GITHUB_ENV"
+          echo "NUXT_SUPABASE_SECRET_KEY=$(jq -r .SERVICE_ROLE_KEY /tmp/supabase.json)" >> "$GITHUB_ENV"
+      - name: Tests des policies sur la vraie pile Supabase
+        run: pnpm test:db
+        env:
+          TEST_DB_SHIM: '0'
+          TEST_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+      - name: Types générés à jour
+        continue-on-error: true
+        run: |
+          supabase gen types typescript --local --schema public > /tmp/types.ts
+          pnpm exec prettier --stdin-filepath app/types/database.types.ts < /tmp/types.ts > /tmp/types.fmt.ts
+          diff -u app/types/database.types.ts /tmp/types.fmt.ts
+      - run: pnpm build
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            playwright-report
+            test-results
+          retention-days: 7

@@ -1,4 +1,4 @@
-import { z } from 'zod'
+import { z } from './zod'
 
 export const PROPERTY_TYPES = ['studio', 't1', 't2', 't3', 't4', 't5_plus', 'maison', 'autre'] as const
 export type PropertyType = (typeof PROPERTY_TYPES)[number]
@@ -17,9 +17,10 @@ export const PROPERTY_TYPE_LABELS: Record<PropertyType, string> = {
 export const MIN_PRICE_CENTS = 100
 export const MAX_PRICE_CENTS = 100_000
 
-const trimmed = (max: number) =>
+/** Texte nettoyé ; `required` est le message affiché si le champ est absent. */
+const trimmed = (max: number, required = 'Champ invalide') =>
   z
-    .string()
+    .string({ error: required })
     .trim()
     .max(max, { error: `${max} caractères maximum` })
 
@@ -40,7 +41,7 @@ const httpUrl = z
   )
 
 const phone = z
-  .string()
+  .string({ error: 'Indiquez le téléphone du contact' })
   .trim()
   .regex(/^[+0-9 ().-]{6,20}$/, { error: 'Numéro de téléphone invalide' })
 
@@ -53,17 +54,17 @@ const priceCents = z
 /** Champs d'une demande. Tous facultatifs en brouillon. */
 export const requestFieldsSchema = z.object({
   listingUrl: httpUrl.nullish(),
-  address: trimmed(200).min(3, { error: "Indiquez l'adresse" }),
+  address: trimmed(200, "Indiquez l'adresse").min(3, { error: "Indiquez l'adresse" }),
   postalCode: z
-    .string()
+    .string({ error: 'Indiquez le code postal' })
     .trim()
     .regex(/^\d{5}$/, { error: 'Code postal à 5 chiffres' }),
-  city: trimmed(120).min(1, { error: 'Indiquez la ville' }),
+  city: trimmed(120, 'Indiquez la ville').min(1, { error: 'Indiquez la ville' }),
   lat: z.number().min(-90).max(90).nullish(),
   lng: z.number().min(-180).max(180).nullish(),
   propertyType: z.enum(PROPERTY_TYPES, { error: 'Choisissez le type de bien' }),
   slotAt: z.iso.datetime({ offset: true, error: 'Indiquez la date et l’heure du rendez-vous' }),
-  agencyName: trimmed(160).min(2, { error: 'Indiquez le contact sur place' }),
+  agencyName: trimmed(160, 'Indiquez le contact sur place').min(2, { error: 'Indiquez le contact sur place' }),
   agencyPhone: phone,
   agencyEmail: z.email({ error: 'Email invalide' }).nullish(),
   priorities: trimmed(2000).nullish(),

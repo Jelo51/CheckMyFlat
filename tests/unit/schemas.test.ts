@@ -171,3 +171,14 @@ describe('grille tarifaire', () => {
     ).toBe(false)
   })
 })
+
+describe('messages en français', () => {
+  it('champs obligatoires absents', () => {
+    const r = requestPublishSchema(now).safeParse({ consent: true })
+    const messages = r.error?.issues.map((i) => i.message) ?? []
+    expect(messages).toContain("Indiquez l'adresse")
+    expect(messages).toContain('Indiquez le code postal')
+    expect(messages).toContain('Indiquez le téléphone du contact')
+    expect(messages.join(' ')).not.toMatch(/Invalid input|expected/)
+  })
+})
