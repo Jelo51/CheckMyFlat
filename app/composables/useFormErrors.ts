@@ -21,20 +21,10 @@ export function useFormErrors() {
     return null
   }
 
-  /** Message d'une erreur $fetch / Supabase, en français si possible. */
-  function fromError(error: unknown, fallback = 'Une erreur est survenue. Réessayez.') {
-    const e = error as {
-      data?: { statusMessage?: string; message?: string }
-      statusMessage?: string
-      message?: string
-    }
-    formError.value = e?.data?.statusMessage ?? e?.statusMessage ?? fallback
-  }
-
   function reset() {
     errors.value = {}
     formError.value = null
   }
 
-  return { errors, formError, validate, fromError, reset }
+  return { errors, formError, validate, reset }
 }

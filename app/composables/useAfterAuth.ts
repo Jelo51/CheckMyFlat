@@ -13,7 +13,7 @@ export function useAfterAuth() {
     await refresh()
     if (role.value === 'user') {
       const form = localDraft.read()
-      const { id } = await $fetch<{ id: string | null }>('/api/requests/attach-draft', {
+      const { id } = await api<{ id: string | null }>('/api/requests/attach-draft', {
         method: 'POST',
         body: { draft: form ? formToDraft(form) : null },
       })

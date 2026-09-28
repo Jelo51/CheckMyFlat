@@ -159,3 +159,51 @@ export function resolveZone(place: Place, rules: readonly ZoneRuleEntry[]): stri
   const sorted = [...rules].sort((a, b) => a.priority - b.priority)
   return sorted.find((r) => ruleMatches(r.rule, place))?.zoneId ?? null
 }
+
+/* ---------------------------------------------------- règlement Stripe -- */
+
+export interface PaymentState {
+  status: 'pending' | 'authorized' | 'captured' | 'partially_refunded' | 'refunded' | 'canceled' | 'failed'
+  amountCents: number
+  capturedCents: number
+  refundedCents: number
+}
+
+export type SettlementAction =
+  | { kind: 'none' }
+  | { kind: 'release' }
+  | { kind: 'capture'; amountCents: number }
+  | { kind: 'refund'; amountCents: number }
+
+/**
+ * Action Stripe pour régler un paiement après annulation :
+ * - empreinte non capturée : libération, ou capture de la seule pénalité ;
+ * - paiement débité : remboursement de la part due.
+ * Un paiement déjà réglé (partiellement capturé ou remboursé) n'est pas retouché.
+ */
+export function settlementAction(
+  payment: PaymentState,
+  input: Omit<CancellationInput, 'paidCents'>,
+): { action: SettlementAction; outcome: CancellationOutcome } {
+  const paidCents = payment.status === 'captured' ? payment.capturedCents : payment.amountCents
+  const outcome = cancellationOutcome({ ...input, paidCents })
+  const alreadySettled =
+    payment.status === 'captured' &&
+    (payment.refundedCents > 0 || payment.capturedCents < payment.amountCents)
+  if (alreadySettled || (payment.status !== 'authorized' && payment.status !== 'captured')) {
+    return { action: { kind: 'none' }, outcome }
+  }
+  if (payment.status === 'authorized') {
+    return {
+      action:
+        outcome.penaltyCents > 0
+          ? { kind: 'capture', amountCents: outcome.penaltyCents }
+          : { kind: 'release' },
+      outcome,
+    }
+  }
+  return {
+    action: outcome.refundCents > 0 ? { kind: 'refund', amountCents: outcome.refundCents } : { kind: 'none' },
+    outcome,
+  }
+}

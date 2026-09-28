@@ -1,5 +1,5 @@
 import type { H3Event } from 'h3'
-import type { SupabaseClient } from '@supabase/supabase-js'
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { serverSupabaseClient, serverSupabaseServiceRole, serverSupabaseUser } from '#supabase/server'
 import type { Database, Tables } from '~~/app/types/database.types'
 import type { AccountRole } from '#shared/schemas/account'
@@ -17,6 +17,20 @@ export interface AuthContext {
 /** Client service role : contourne la RLS. Réservé au serveur. */
 export function serviceClient(event: H3Event): UserClient {
   return serverSupabaseServiceRole<Database>(event)
+}
+
+let system: UserClient | null = null
+
+/** Client service role hors requête HTTP (tâches planifiées). */
+export function systemClient(): UserClient {
+  if (system) return system
+  const config = useRuntimeConfig()
+  const key = config.supabase.secretKey || config.supabase.serviceKey
+  if (!key) throw new Error('NUXT_SUPABASE_SECRET_KEY manquante')
+  system = createClient<Database>(config.public.supabase.url, key, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  })
+  return system
 }
 
 export async function requireUser(event: H3Event): Promise<AuthContext> {
