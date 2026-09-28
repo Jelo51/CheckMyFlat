@@ -9,8 +9,7 @@ definePageMeta({ layout: 'app', roles: ['user'] })
 
 const route = useRoute()
 const id = String(route.params.id)
-const { data, refresh } = useRequestDetail(id)
-await refresh()
+const { data, refresh } = await useRequestDetail(id)
 if (!data.value?.request)
   throw createError({ statusCode: 404, statusMessage: 'Demande introuvable', fatal: true })
 

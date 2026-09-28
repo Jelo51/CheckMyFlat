@@ -24,11 +24,6 @@ export async function login(page: Page, email: string, password = PASSWORD) {
   await page.waitForURL((url) => !url.pathname.startsWith('/connexion'))
 }
 
-export async function logout(page: Page) {
-  await page.context().clearCookies()
-  await page.evaluate(() => localStorage.clear())
-}
-
 /** Aucune violation d'accessibilité sérieuse ou critique (WCAG 2.1 AA). */
 export async function expectAccessible(page: Page) {
   const results = await new AxeBuilder({ page })

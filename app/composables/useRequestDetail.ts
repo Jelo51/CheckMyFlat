@@ -6,7 +6,16 @@
 export function useRequestDetail(id: string) {
   const supabase = useSupabaseClient()
 
-  const { data, refresh, status } = useAsyncData(`request-${id}`, async () => {
+  // Hooks enregistrés avant tout `await` : l'appelant peut attendre le résultat.
+  let timer: ReturnType<typeof setInterval> | undefined
+  onMounted(() => {
+    timer = setInterval(() => {
+      if (document.visibilityState === 'visible') refreshNuxtData(`request-${id}`)
+    }, 20_000)
+  })
+  onBeforeUnmount(() => clearInterval(timer))
+
+  return useAsyncData(`request-${id}`, async () => {
     const [request, offers, messages, events, payments] = await Promise.all([
       supabase
         .from('visit_requests')
@@ -26,16 +35,4 @@ export function useRequestDetail(id: string) {
       payments: payments.data ?? [],
     }
   })
-
-  let timer: ReturnType<typeof setInterval> | undefined
-  onMounted(() => {
-    timer = setInterval(() => {
-      if (document.visibilityState === 'visible') refresh()
-    }, 20_000)
-  })
-  onBeforeUnmount(() => clearInterval(timer))
-
-  return { data, refresh, status }
 }
-
-export type RequestDetail = NonNullable<ReturnType<typeof useRequestDetail>['data']['value']>
