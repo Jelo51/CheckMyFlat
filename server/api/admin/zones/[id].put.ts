@@ -22,17 +22,13 @@ export default defineEventHandler(async (event) => {
   const { error: deleteError } = await db.from('pricing_zone_rules').delete().eq('zone_id', id)
   if (deleteError) dbError(deleteError)
   if (input.rules.length) {
-    const { error: insertError } = await db
-      .from('pricing_zone_rules')
-      .insert(
-        input.rules.map(
-          (r): TablesInsert<'pricing_zone_rules'> => ({
-            zone_id: id,
-            priority: r.priority,
-            rule: r.rule as unknown as TablesInsert<'pricing_zone_rules'>['rule'],
-          }),
-        ),
-      )
+    const { error: insertError } = await db.from('pricing_zone_rules').insert(
+      input.rules.map((r): TablesInsert<'pricing_zone_rules'> => ({
+        zone_id: id,
+        priority: r.priority,
+        rule: r.rule as unknown as TablesInsert<'pricing_zone_rules'>['rule'],
+      })),
+    )
     if (insertError) dbError(insertError)
   }
   return { id }

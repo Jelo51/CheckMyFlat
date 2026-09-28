@@ -143,9 +143,9 @@ describe('indicateurs admin', () => {
       await db.as({ uid: IDS.camille })
       expect(await db.errorCode('select public.admin_stats()')).toBe('CMF05')
       await db.as({ uid: IDS.admin })
-      const { stats } = await db.one<{ stats: { byStatus: Record<string, number>; revenueMonthCents: number } }>(
-        'select public.admin_stats() as stats',
-      )
+      const { stats } = await db.one<{
+        stats: { byStatus: Record<string, number>; revenueMonthCents: number }
+      }>('select public.admin_stats() as stats')
       expect(stats.byStatus.planifiee).toBe(1)
       expect(Object.values(stats.byStatus).reduce((a, b) => a + b, 0)).toBe(10)
       expect(typeof stats.revenueMonthCents).toBe('number')
@@ -155,9 +155,10 @@ describe('indicateurs admin', () => {
   it('la date de capture est posée au passage en « captured »', async () => {
     await tx(async (db) => {
       await db.as('service')
-      await db.query(`update public.payments set status = 'captured', captured_cents = amount_cents where request_id = $1`, [
-        IDS.req(5),
-      ])
+      await db.query(
+        `update public.payments set status = 'captured', captured_cents = amount_cents where request_id = $1`,
+        [IDS.req(5)],
+      )
       const p = await db.one<{ captured: boolean }>(
         'select captured_at is not null as captured from public.payments where request_id = $1',
         [IDS.req(5)],
