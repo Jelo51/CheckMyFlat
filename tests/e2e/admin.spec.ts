@@ -16,14 +16,14 @@ test('file des demandes, assignation d’un agent', async ({ page }) => {
   await expect(page).toHaveURL(new RegExp(`/admin/demandes/${SEED.payee}`))
 
   await page.getByLabel('Agent').selectOption({ label: 'Julien Visiteur' })
-  await page.getByRole('button', { name: 'Assigner' }).click()
+  await page.getByRole('button', { name: 'Assigner', exact: true }).click()
   await expect(page.getByText('Agent assigné')).toBeVisible()
   await expect(page.getByText('Planifiée').first()).toBeVisible()
 })
 
 test('gestion des utilisateurs', async ({ page }) => {
   await page.goto('/admin/utilisateurs')
-  await expect(page.getByRole('cell', { name: /camille@exemple\.test/ })).toBeVisible()
+  await expect(page.getByRole('cell', { name: /^Camille Martin/ })).toBeVisible()
   await expectAccessible(page)
 
   const role = page.getByLabel(`Rôle de ${ACCOUNTS.hugo}`)
