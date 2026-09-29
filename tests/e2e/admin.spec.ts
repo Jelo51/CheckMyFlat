@@ -17,7 +17,7 @@ test('file des demandes, assignation d’un agent', async ({ page }) => {
 
   await page.getByLabel('Agent').selectOption({ label: 'Julien Visiteur' })
   await page.getByRole('button', { name: 'Assigner', exact: true }).click()
-  await expect(page.getByText('Agent assigné')).toBeVisible()
+  await expect(page.getByText('Agent assigné, notifications envoyées.')).toBeVisible()
   await expect(page.getByText('Planifiée').first()).toBeVisible()
 })
 
