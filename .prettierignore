@@ -1,0 +1,9 @@
+.nuxt
+.output
+node_modules
+pnpm-lock.yaml
+docs/prototype.html
+supabase/.temp
+playwright-report
+test-results
+server/assets

@@ -1,0 +1,200 @@
+# CheckMyFlat v1 — Plan de build
+
+Référence visuelle et fonctionnelle : [`docs/prototype.html`](./prototype.html).
+Ce plan est la source de vérité pour l'avancement. Tout `TODO` dans le code doit renvoyer à une ligne de la section « Tickets ouverts ».
+
+---
+
+## 0. Écarts relevés entre la spec et le prototype
+
+| #   | Sujet                        | Spec                                                                     | Prototype                                             | Décision proposée                                                                                        |
+| --- | ---------------------------- | ------------------------------------------------------------------------ | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| E1  | Nombre de critères           | 14                                                                       | **13** (3 + 3 + 4 + 3), idem dans la vue rapport      | Ajout de « Surface réelle conforme à l'annonce » (Q1)                                                    |
+| E2  | Couleurs de base             | encre `#111827`, surface `#FAFAF7`, texte 2 `#6B7280`, bordure `#E5E7EB` | `#12151A`, `#F4F5F2`, `#5C635E`, `#E2E5E1`            | La spec l'emporte                                                                                        |
+| E3  | Accent                       | « vert de validation », pas de hex                                       | `#0E7A55` (hover `#0A5C40`, teinte `#E4F1EB`)         | Reprendre `#0E7A55` : 5,4:1 sur blanc, texte blanc AA                                                    |
+| E4  | Échelle des notes            | `#DC2626 #F97316 #EAB308 #84CC16 #16A34A`                                | teintes plus sourdes                                  | La spec l'emporte ; chiffres sur fond 3/4/5 en encre (le blanc n'atteint pas AA sur `#EAB308`/`#84CC16`) |
+| E5  | Case prise de vue            | « prise de vue refusée » (cochée = refus)                                | « prise de vue autorisée » (cochée par défaut)        | Libellé de la spec, sémantique identique                                                                 |
+| E6  | KPIs admin                   | par statut, CA du mois, délai moyen de livraison                         | actives, visites semaine, encaissé, note moyenne      | Spec + « note moyenne » en bonus                                                                         |
+| E7  | Interlocuteur de négociation | l'admin négocie                                                          | messages signés « Visiteur »                          | **Voir Q3**                                                                                              |
+| E8  | Lien d'annonce               | champ simple                                                             | « on récupère titre, surface, loyer automatiquement » | Hors v1 (scraping fragile et risqué juridiquement), **voir Q9**                                          |
+| E9  | Paiement                     | Checkout ou Payment Element                                              | « débité maintenant, somme libérée après le rapport » | **Voir Q5**                                                                                              |
+
+Polices du prototype conservées : Bricolage Grotesque (titres), Public Sans (texte), IBM Plex Mono (chiffres, références). Auto-hébergées via `@fontsource` (pas d'appel Google Fonts, RGPD).
+
+## 1. Architecture
+
+```
+app/
+  pages/            index, legal/[slug], connexion, inscription, auth/confirmation, demandes/*, rapports/*,
+                    agent/visites/*, admin/*, compte
+  layouts/          default (public), app (espace connecté, navigation selon le rôle)
+  middleware/       auth.global (métadonnées de page : auth, roles, guestOnly)
+  components/       ui/ (icône, notes, tampon, statut, champ, dialogue…), request/, visit/, landing/
+  composables/      useProfile, useRequestDetail, useVisitReport, useCriteria, useQuote, useLocalDraft…
+  types/            database.types.ts (généré)
+shared/             code partagé client/serveur
+  schemas/          Zod (messages en français) : request, visitReport, account, pricing
+  domain/           stateMachine, scoring, pricing (zones, pénalités, règlement Stripe), reference
+  utils/            heure de Paris, redirections sûres
+server/
+  api/              demandes, offres, visites, médias, rapports, admin, géocodage, cron
+  routes/webhooks/  stripe.post.ts
+  tasks/            payments/maintenance (toutes les 15 min)
+  utils/            auth (clients Supabase), payments (Stripe), notify + notifications/, pdf/, zones, visits
+  assets/fonts/     polices TTF du PDF
+supabase/
+  migrations/       SQL versionné
+  seed.sql
+tests/
+  unit/             Vitest
+  db/               Vitest + pg : policies RLS, transitions, règles SQL
+  e2e/              Playwright (+ axe)
+```
+
+Principes :
+
+- **Machine à états unique** dans `shared/domain/stateMachine.ts` (table de transitions + rôles autorisés), miroir exact d'une fonction Postgres `transition_request(id, to, reason)` `SECURITY DEFINER` qui vérifie la transition, le rôle et journalise dans `visit_request_events`. Un test Vitest vérifie que la table TS et la table SQL sont identiques (la SQL est générée depuis la TS ou comparée au seed de la table `request_transitions`).
+- **Statut `payee` uniquement posé par le webhook Stripe** (service role), jamais exposé au client : la transition `acceptee → payee` est marquée `system_only`.
+- **Rôles découplés des capacités** : les policies d'agent reposent sur `visit_requests.assigned_agent_id = auth.uid()`, pas sur `role = 'admin'`. Un admin agit comme agent en s'assignant. En v2, un `user` promu `agent` fonctionne sans changement de policies.
+- **Service role** : seulement dans `server/utils/supabaseAdmin.ts` ; lint rule `no-restricted-imports` pour l'interdire hors `server/`.
+
+## 2. Modèle de données (résumé)
+
+Enums : `role` (visitor, user, agent, admin — `visitor` n'est jamais stocké en base puisqu'il désigne un non-connecté, mais l'enum le contient comme demandé), `request_status`, `property_type`, `offer_status`, `payment_status`, `media_kind`, `recommendation`.
+
+| Table                  | Points clés                                                                                                                                                                                                                                                                                                                        |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `profiles`             | `id = auth.users.id`, `role`, nom, téléphone, `suspended_at`, trigger `on_auth_user_created`                                                                                                                                                                                                                                       |
+| `pricing_zones`        | code, libellé, prix plancher (centimes), règle de rattachement (liste de départements), `active`                                                                                                                                                                                                                                   |
+| `visit_requests`       | `reference` `CMF-AAAA-NNNN` (séquence annuelle), `user_id`, `assigned_agent_id`, `status`, adresse, code postal, ville, `zone_id`, `property_type`, `listing_url`, `slot_at` (timestamptz, Europe/Paris), contact agence (nom, tel, email), `priorities`, `proposed_price_cents`, `agreed_price_cents`, `consent_at`, `deleted_at` |
+| `visit_request_events` | `request_id`, `actor_id` (null = système), `from_status`, `to_status`, `reason`, `created_at`                                                                                                                                                                                                                                      |
+| `price_offers`         | `request_id`, `author_id`, `amount_cents`, `note`, `status` (pending/accepted/rejected/superseded/expired), `expires_at`                                                                                                                                                                                                           |
+| `messages`             | `request_id`, `author_id`, `body`, `offer_id` nullable (un message peut porter une offre)                                                                                                                                                                                                                                          |
+| `payments`             | `request_id`, `stripe_checkout_session_id`, `stripe_payment_intent_id`, `amount_cents`, `status`, `refunded_cents`, `stripe_refund_id`                                                                                                                                                                                             |
+| `stripe_events`        | `id` (event Stripe), `processed_at` — idempotence des webhooks                                                                                                                                                                                                                                                                     |
+| `criteria_blocks`      | code, libellé, `weight` (numeric, somme = 1, contrainte vérifiée par trigger), `position`, icône Lucide                                                                                                                                                                                                                            |
+| `criteria`             | `block_id`, code, libellé long (formulaire), libellé court (rapport), `position`, `active`                                                                                                                                                                                                                                         |
+| `visit_reports`        | `request_id` unique, `agent_id`, `status` (draft/submitted), `filming_refused`, `weighted_score`, `global_score`, `justification`, `negotiation_points` jsonb[], `conclusion`, `recommendation`, `pdf_path`, `submitted_at`, `delivered_at`                                                                                        |
+| `report_scores`        | `report_id`, `criterion_id`, `score` 1–5, `comment`                                                                                                                                                                                                                                                                                |
+| `report_reserves`      | `report_id`, `text`, `media_id` nullable (réserve avec photo)                                                                                                                                                                                                                                                                      |
+| `report_media`         | `report_id`, `kind`, `storage_path`, `size_bytes`, `mime`, `position`                                                                                                                                                                                                                                                              |
+| `app_settings`         | `max_media_bytes_per_visit`, etc.                                                                                                                                                                                                                                                                                                  |
+
+Storage : buckets privés `report-media` et `report-pdf`, chemins `{request_id}/…`, policies Storage calquées sur celles de `visit_reports`, lecture par URL signée (durée courte).
+
+RLS (toutes tables, `force row level security`) :
+
+- user : ses propres demandes/messages/offres/paiements/rapports livrés, jamais ceux des autres.
+- agent : uniquement les demandes où `assigned_agent_id = auth.uid()` et leur rapport ; aucune lecture de `profiles` autres que le propriétaire de la demande assignée (nom + contact limités via vue).
+- admin : tout, via `is_admin()` `SECURITY DEFINER STABLE`.
+- Tables de référence (`criteria*`, `pricing_zones`) : lecture publique, écriture admin.
+- Écritures de statut : jamais par `UPDATE` direct, seulement via `transition_request`.
+- Tests Vitest + `pg` dans `tests/db/` (rôles `anon`/`authenticated`/`service_role` simulés par `set local role` + claims JWT), exécutables sur Postgres nu (émulation Supabase) ou sur `supabase start`.
+
+## 3. Machine à états
+
+```
+brouillon → publiee → en_negociation → acceptee → payee → planifiee → realisee → rapport_livre
+annulee  : depuis tout état avant realisee
+litige   : depuis realisee ou rapport_livre
+```
+
+| De → Vers                       | Acteur                                                                  | Effet de bord                     |
+| ------------------------------- | ----------------------------------------------------------------------- | --------------------------------- |
+| brouillon → publiee             | user propriétaire                                                       | calcul zone, notification admin   |
+| publiee → en_negociation        | admin (1re contre-offre) ou automatique à la 1re offre non propriétaire | email « nouvelle proposition »    |
+| en_negociation → acceptee       | partie qui accepte l'offre en cours                                     | création session Stripe Checkout  |
+| publiee → acceptee              | admin accepte le prix proposé tel quel                                  | idem                              |
+| acceptee → payee                | **système (webhook)**                                                   | email « paiement confirmé »       |
+| payee → planifiee               | admin (assignation agent)                                               | email agent « visite assignée »   |
+| planifiee → realisee            | agent assigné (soumission formulaire)                                   | lancement génération PDF          |
+| realisee → rapport_livre        | système (PDF généré)                                                    | email « rapport livré »           |
+| * → annulee                     | user (avant payee sans frais, après : remboursement), admin             | remboursement auto si payé, email |
+| realisee/rapport_livre → litige | user ou admin                                                           | notification admin                |
+
+Modification de la demande : `brouillon`, `publiee`, `en_negociation` (policy + trigger `BEFORE UPDATE`). Suppression : hard delete si aucun paiement, sinon `deleted_at`.
+Tests Vitest : produit cartésien de tous les états × tous les états × tous les rôles.
+
+## 4. Notation hybride
+
+- `blockAverage = moyenne des critères notés du bloc`
+- `weighted = Σ blockAverage × weight` (poids lus en base)
+- Justification obligatoire si `|global − weighted| > 1` (strictement supérieur), validée par le même schéma Zod côté client et dans la route Nitro, plus une contrainte `CHECK` en base.
+- Arrondi d'affichage à 0,1 avec virgule française ; stockage `numeric(3,2)`.
+- Soumission impossible tant que les 14 critères ne sont pas notés.
+
+## 5. Choix techniques
+
+| Besoin                    | Choix                                                                    | Raison                                                  |
+| ------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------- |
+| Gestionnaire de paquets   | pnpm                                                                     | disponible, rapide, lockfile strict                     |
+| PDF                       | `pdfkit` en route Nitro, polices TTF embarquées                          | pur JS, pas de Chromium ; fontkit lit mal certains WOFF |
+| Compression images client | `browser-image-compression`                                              | WebWorker, EXIF orientation                             |
+| Paiement                  | Stripe Checkout (hébergé)                                                | moins de surface PCI, SCA gérée                         |
+| Emails                    | interface `Channel` (Resend, console) ; `notify()` compose par événement | fournisseur ou SMS changeables sans toucher le métier   |
+| Templates email           | fonctions TS → HTML simple + texte brut                                  | pas de dépendance lourde                                |
+| Tests RLS                 | Vitest + `pg`, transactions annulées                                     | exécutables sans Docker et en CI sur la vraie pile      |
+| Tests E2E                 | Playwright contre Supabase local + stripe-mock, webhook simulé et signé  | déterministe en CI                                      |
+| Date/heure                | stockage UTC, affichage `Europe/Paris` via `Intl`                        |                                                         |
+
+## 6. Phases
+
+| #   | Phase         | Livrables                                                                                                                              | État |
+| --- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ---- |
+| 1   | Setup         | Nuxt 4, TS strict, Tailwind + tokens, ESLint/Prettier, Vitest, layouts public/app, composants UI de base                               | fait |
+| 2   | BDD           | migrations, RLS, fonctions `transition_request`, seed, types générés, tests SQL (Vitest)                                               | fait |
+| 3   | Auth          | inscription/connexion/mot de passe oublié, middlewares rôle, brouillon visiteur (localStorage → `brouillon` en base après inscription) | fait |
+| 4   | Public        | landing complète, pages légales (structure), 404                                                                                       | fait |
+| 5   | User          | Mes demandes, nouvelle demande, détail + messagerie + offres structurées, édition, annulation                                          | fait |
+| 6   | Stripe        | Checkout, webhook signé idempotent, remboursements auto                                                                                | fait |
+| 7   | Agent         | Mes visites, formulaire mobile, autosave, médias, notation hybride                                                                     | fait |
+| 8   | PDF           | génération pdfkit, stockage, Mes rapports, vue rapport en ligne                                                                        | fait |
+| 9   | Admin         | file + KPIs + filtres, négociation, assignation, utilisateurs CRUD, grille tarifaire                                                   | fait |
+| 10  | Notifications | couche de notification, emails transactionnels                                                                                         | fait |
+| 11  | Qualité       | Playwright ×3 parcours, passe a11y (axe), README                                                                                       | fait |
+
+Chaque phase se termine par : `pnpm lint && pnpm typecheck && pnpm test` au vert, puis un commit.
+
+### Contraintes de l'environnement de build
+
+- Le démon Docker n'est pas disponible dans le conteneur de développement actuel : la Supabase CLI locale (`supabase start`) ne peut pas y tourner. PostgreSQL 16 est en revanche installé : les migrations et tests de policies seront exécutés contre ce Postgres avec un schéma `auth` minimal simulé, et les types seront générés depuis ce schéma. Le README documentera la voie standard (`supabase start`, `supabase test db`, `supabase gen types`).
+- Pas de Stripe CLI : les webhooks seront testés en signant localement des payloads avec `stripe.webhooks.generateTestHeaderString`.
+
+## 7. Décisions (réponses du 28/09/2026)
+
+| #   | Sujet                           | Décision                                                                                                                                                                                                                                                                                               |
+| --- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Q1  | 14ᵉ critère                     | « Surface réelle conforme à l'annonce », bloc Qualité (Qualité = 4 critères, Agencement = 4, Localisation = 3, Immeuble = 3)                                                                                                                                                                           |
+| Q2  | Zones                           | Reims. Z1 centre-ville **7 €**, Z2 rayon 2 km du centre **10 €**, Z3 Croix-Rouge + Cormontreuil **14 €**, Z4 Thillois, Bétheny et hors Reims **19 €**. Supplément **+5 €** ajouté automatiquement si `créneau − date de publication < 48 h`                                                            |
+| Q3  | Négociation                     | l'admin négocie, affiché « CheckMyFlat » ; l'agent n'a pas accès à la messagerie                                                                                                                                                                                                                       |
+| Q4  | Offres                          | valables 48 h ; prix sous le plancher autorisé avec avertissement                                                                                                                                                                                                                                      |
+| Q5  | Paiement                        | Stripe Checkout en **capture différée** (empreinte bancaire). Paiement ouvert au plus tôt 7 jours avant le créneau. Annulation client < 24 h avant la visite : pénalité Z1 0 %, Z2 10 %, Z3 20 %, Z4 35 %. Toute autre annulation : remboursement intégral (libération de l'empreinte si non capturée) |
+| Q6  | Emails                          | Resend                                                                                                                                                                                                                                                                                                 |
+| Q7  | Hébergement                     | OVH VPS ou Public Cloud, preset Nitro `node-server` ; PDF avec pdfkit                                                                                                                                                                                                                                  |
+| Q8  | Médias                          | 500 Mo/visite (paramétrable), vidéos ≤ 2 min, photos 2560 px JPEG 0,8                                                                                                                                                                                                                                  |
+| Q9  | Lien d'annonce                  | champ simple, pas d'extraction automatique en v1                                                                                                                                                                                                                                                       |
+| Q10 | Textes légaux, décharge, mandat | structure prête, textes fournis plus tard (ticket T1)                                                                                                                                                                                                                                                  |
+| Q11 | Recommandation                  | 3 choix : déposer le dossier immédiatement / conserver en option / refuser                                                                                                                                                                                                                             |
+| Q12 | Agents                          | l'admin peut s'assigner une visite ; rémunération des agents hors v1                                                                                                                                                                                                                                   |
+
+### Interprétations à valider (valeurs en base, modifiables dans la grille tarifaire admin)
+
+- Centre de Reims : point `49.2566, 4.0327` (entre la cathédrale et l'hôtel de ville). Zone 1 = rayon **1 km**.
+- Adresse à Reims au-delà de 2 km et hors Croix-Rouge : **zone 3**.
+- Croix-Rouge : polygone approximatif du quartier.
+- Géocodage : API Géoplateforme de l'IGN (gratuite, sans clé). Si l'adresse n'est pas trouvée, la zone reste à fixer par l'admin.
+- Le supplément 48 h est une ligne séparée, ajoutée au prix négocié.
+
+### Cycle de paiement
+
+1. Prix accepté → `acceptee`. Si le créneau est à plus de 7 jours, le bouton « Payer » est désactivé jusqu'à J−7 (email à l'ouverture).
+2. Checkout avec `capture_method=manual` → webhook `payment_intent.amount_capturable_updated` → `payee`.
+3. Capture à la soumission de la visite (`realisee`), ou par la tâche planifiée 24 h avant l'expiration de l'empreinte (`capture_before`).
+4. Annulation avant capture : annulation de l'empreinte, ou capture partielle du montant de la pénalité. Après capture : remboursement total ou partiel.
+5. Demande `acceptee` non payée au moment du créneau : annulée automatiquement.
+
+## 8. Tickets ouverts
+
+| Ticket | Sujet                                                                                                                                       |
+| ------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| T1     | Textes des pages légales (mentions, CGU/CGV, confidentialité), décharge de visite et modèle de mandat pour l'agence : fournis par le client |
