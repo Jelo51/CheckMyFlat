@@ -9,5 +9,10 @@ interface ApiOptions {
  * route de Nitro, trop coûteuse pour TypeScript avec des URL construites.
  */
 export function api<T = unknown>(url: string, options?: ApiOptions): Promise<T> {
-  return ($fetch as unknown as (url: string, options?: ApiOptions) => Promise<T>)(url, options)
+  // Au rendu serveur, `useRequestFetch` transmet les cookies de session.
+  type Fetcher = (url: string, options?: ApiOptions) => Promise<T>
+  const fetcher = import.meta.server
+    ? (useRequestFetch() as unknown as Fetcher)
+    : ($fetch as unknown as Fetcher)
+  return fetcher(url, options)
 }

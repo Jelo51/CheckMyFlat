@@ -21,7 +21,9 @@ export function useProfile() {
   const loadedFor = useState<string | null>('profile-loaded-for', () => null)
 
   async function refresh(): Promise<Profile | null> {
-    const uid = user.value?.sub ?? null
+    // Juste après une connexion, `useSupabaseUser` n'est pas encore à jour :
+    // on relit la session.
+    const uid = user.value?.sub ?? (await supabase.auth.getClaims()).data?.claims?.sub ?? null
     if (!uid) {
       profile.value = null
       loadedFor.value = null

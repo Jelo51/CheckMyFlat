@@ -12,7 +12,7 @@ test('dépôt sans compte → inscription → négociation → paiement', async 
   await expect(page).toHaveURL(/\/demandes\/nouvelle/)
   await expectAccessible(page)
   await page.getByLabel('Lien de l’annonce').fill('https://www.leboncoin.fr/ad/locations/123456')
-  await page.getByLabel('Adresse', { exact: true }).fill('12 rue de Vesle')
+  await page.getByRole('combobox', { name: /Adresse/ }).fill('12 rue de Vesle')
   await page.getByLabel('Code postal').fill('51100')
   await page.getByLabel('Ville').fill('Reims')
   await page.getByLabel('Type de bien').selectOption('t2')
@@ -38,7 +38,7 @@ test('dépôt sans compte → inscription → négociation → paiement', async 
   await page.getByRole('button', { name: 'Créer mon compte' }).click()
 
   await expect(page).toHaveURL(/\/demandes\/[0-9a-f-]{36}\/modifier\?rattache=1/)
-  await expect(page.getByLabel('Adresse', { exact: true })).toHaveValue('12 rue de Vesle')
+  await expect(page.getByRole('combobox', { name: /Adresse/ })).toHaveValue('12 rue de Vesle')
   await page.getByLabel(/J’atteste avoir prévenu l’agence/).check()
   await page.getByRole('button', { name: 'Proposer ce prix et publier' }).click()
   await expect(page).toHaveURL(/\/demandes\/[0-9a-f-]{36}$/)

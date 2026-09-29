@@ -18,15 +18,20 @@ declare module '#app' {
 export default defineNuxtRouteMiddleware(async (to) => {
   const { user, ensure, home } = useProfile()
   const needsAuth = to.meta.auth || !!to.meta.roles?.length
+  if (!needsAuth && !to.meta.guestOnly) return
 
-  if (to.meta.guestOnly && user.value) {
+  // Juste après une connexion, `useSupabaseUser` peut ne pas être encore à
+  // jour : on relit la session.
+  const signedIn = !!user.value || !!(await useSupabaseClient().auth.getClaims()).data?.claims?.sub
+
+  if (to.meta.guestOnly && signedIn) {
     await ensure()
     return navigateTo(home.value)
   }
 
   if (!needsAuth) return
 
-  if (!user.value) {
+  if (!signedIn) {
     return navigateTo({ path: '/connexion', query: { next: to.fullPath } })
   }
 
